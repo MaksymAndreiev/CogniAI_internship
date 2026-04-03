@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MNIST · WebGPU Inference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #0a0a0f;
+    --surface:  #13131a;
+    --border:   #2a2a3a;
+    --accent:   #7c3aed;
+    --accent2:  #06b6d4;
+    --text:     #e2e2f0;
+    --muted:    #6b6b8a;
+    --success:  #22c55e;
+    --danger:   #ef4444;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem 4rem;
+    overflow-x: hidden;
+  }
+
+  /* Ambient blobs */
+  body::before, body::after {
+    content: '';
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0.12;
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::before {
+    width: 600px; height: 600px;
+    background: var(--accent);
+    top: -200px; left: -200px;
+  }
+  body::after {
+    width: 500px; height: 500px;
+    background: var(--accent2);
+    bottom: -150px; right: -150px;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 3rem;
+    position: relative; z-index: 1;
+  }
+  header .tag {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    color: var(--accent2);
+    background: rgba(6,182,212,.1);
+    border: 1px solid rgba(6,182,212,.25);
+    border-radius: 2px;
+    padding: 3px 10px;
+    display: inline-block;
+    margin-bottom: 1rem;
+  }
+  h1 {
+    font-size: clamp(2rem, 6vw, 3.5rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+  }
+  h1 span { color: var(--accent); }
+  .subtitle {
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+    font-size: 0.75rem;
+    margin-top: .6rem;
+    letter-spacing: .05em;
+  }
+
+  /* Status bar */
+  #status-bar {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    font-family: 'Space Mono', monospace;
+    font-size: .72rem;
+    color: var(--muted);
+    margin-bottom: 2.5rem;
+    position: relative; z-index: 1;
+  }
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background .4s;
+  }
+  .dot.ok  { background: var(--success); box-shadow: 0 0 8px var(--success); }
+  .dot.err { background: var(--danger);  box-shadow: 0 0 8px var(--danger);  }
+  .dot.loading { animation: pulse 1s infinite; background: var(--accent2); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  /* Main card */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 2rem;
+    position: relative; z-index: 1;
+    width: 100%; max-width: 760px;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    align-items: start;
+  }
+  @media(max-width: 600px){ .layout{ grid-template-columns:1fr; } }
+
+  /* Canvas area */
+  .canvas-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    align-items: center;
+  }
+  .canvas-label {
+    font-size: .7rem;
+    font-family: 'Space Mono', monospace;
+    letter-spacing: .15em;
+    color: var(--muted);
+    text-transform: uppercase;
+    align-self: flex-start;
+  }
+  canvas#draw-canvas {
+    background: #000;
+    border-radius: 10px;
+    border: 2px solid var(--border);
+    cursor: crosshair;
+    touch-action: none;
+    transition: border-color .2s;
+    display: block;
+    width: 280px; height: 280px;
+  }
+  canvas#draw-canvas:hover { border-color: var(--accent); }
+
+  .btn-row {
+    display: flex;
+    gap: .75rem;
+    width: 280px;
+  }
+  button {
+    flex: 1;
+    font-family: 'Space Mono', monospace;
+    font-size: .72rem;
+    letter-spacing: .08em;
+    padding: .6rem .8rem;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    transition: all .2s;
+  }
+  #btn-predict {
+    background: var(--accent);
+    color: #fff;
+  }
+  #btn-predict:hover { background: #6d28d9; transform: translateY(-1px); }
+  #btn-predict:disabled { opacity: .4; cursor: default; transform: none; }
+  #btn-clear {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  #btn-clear:hover { border-color: var(--text); color: var(--text); }
+
+  /* Results panel */
+  .results-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1.4rem;
+  }
+
+  .prediction-display {
+    text-align: center;
+    padding: 1.5rem;
+    background: rgba(124,58,237,.07);
+    border: 1px solid rgba(124,58,237,.2);
+    border-radius: 12px;
+  }
+  .pred-label {
+    font-family: 'Space Mono', monospace;
+    font-size: .65rem;
+    letter-spacing: .2em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: .4rem;
+  }
+  .pred-digit {
+    font-size: 5rem;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--accent);
+    transition: all .3s;
+  }
+  .pred-conf {
+    font-family: 'Space Mono', monospace;
+    font-size: .72rem;
+    color: var(--accent2);
+    margin-top: .3rem;
+  }
+
+  /* Bar chart */
+  .bars-label {
+    font-size: .7rem;
+    font-family: 'Space Mono', monospace;
+    letter-spacing: .15em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: .6rem;
+  }
+  .bar-row {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    margin-bottom: .35rem;
+  }
+  .bar-digit {
+    font-family: 'Space Mono', monospace;
+    font-size: .75rem;
+    color: var(--muted);
+    width: 12px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .bar-track {
+    flex: 1;
+    height: 10px;
+    background: rgba(255,255,255,.05);
+    border-radius: 99px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 99px;
+    background: var(--accent);
+    width: 0%;
+    transition: width .4s cubic-bezier(.4,0,.2,1);
+  }
+  .bar-fill.top { background: var(--accent2); }
+  .bar-pct {
+    font-family: 'Space Mono', monospace;
+    font-size: .65rem;
+    color: var(--muted);
+    width: 42px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  /* GPU info */
+  .gpu-badge {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    font-family: 'Space Mono', monospace;
+    font-size: .65rem;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    padding-top: 1.2rem;
+    margin-top: .5rem;
+  }
+  .gpu-icon {
+    font-size: 1rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="tag">WebGPU · WGSL Compute Shaders</div>
+  <h1>Digit <span>Recognition</span></h1>
+  <p class="subtitle">MLP trained in Python · inference runs on your GPU via WebGPU</p>
+</header>
+
+<div id="status-bar">
+  <div class="dot loading" id="status-dot"></div>
+  <span id="status-text">Initialising WebGPU…</span>
+</div>
+
+<div class="card">
+  <div class="layout">
+
+    <!-- Left: drawing canvas -->
+    <div class="canvas-wrap">
+      <span class="canvas-label">Draw a digit (0–9)</span>
+      <canvas id="draw-canvas" width="280" height="280"></canvas>
+      <div class="btn-row">
+        <button id="btn-predict" disabled>▶ Predict</button>
+        <button id="btn-clear">✕ Clear</button>
+      </div>
+    </div>
+
+    <!-- Right: results -->
+    <div class="results-panel">
+      <div class="prediction-display">
+        <div class="pred-label">Prediction</div>
+        <div class="pred-digit" id="pred-digit">—</div>
+        <div class="pred-conf" id="pred-conf"></div>
+      </div>
+
+      <div>
+        <div class="bars-label">Confidence per class</div>
+        <div id="bars-container">
+          <!-- built by JS -->
+        </div>
+      </div>
+
+      <div class="gpu-badge">
+        <span class="gpu-icon">⚡</span>
+        <span id="gpu-info">WebGPU adapter pending…</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.webgpu.min.js"></script>
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>
