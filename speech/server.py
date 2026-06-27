@@ -32,7 +32,7 @@ app.add_middleware(
 # ── Config ────────────────────────────────────────────────────────────────────
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-DID_API_KEY    = os.getenv("DID_API_KEY")
+DID_API_KEY = os.getenv("DID_API_KEY")
 
 # Default avatar image (D-ID stock photo)
 DEFAULT_AVATAR_URL = os.getenv(
@@ -41,6 +41,7 @@ DEFAULT_AVATAR_URL = os.getenv(
 )
 
 VALID_VOICES = ["Puck", "Charon", "Kore", "Fenrir", "Zephyr"]
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -64,16 +65,16 @@ def get_did_headers() -> dict:
 
 def pcm_to_wav(pcm_bytes: bytes, sample_rate: int = 24000, channels: int = 1, bit_depth: int = 16) -> bytes:
     """Wrap raw PCM bytes in a WAV container."""
-    byte_rate    = sample_rate * channels * bit_depth // 8
-    block_align  = channels * bit_depth // 8
-    data_size    = len(pcm_bytes)
-    chunk_size   = 36 + data_size
+    byte_rate = sample_rate * channels * bit_depth // 8
+    block_align = channels * bit_depth // 8
+    data_size = len(pcm_bytes)
+    chunk_size = 36 + data_size
 
     header = struct.pack(
         "<4sI4s4sIHHIIHH4sI",
         b"RIFF", chunk_size, b"WAVE",
         b"fmt ", 16,
-        1,            # PCM
+        1,  # PCM
         channels,
         sample_rate,
         byte_rate,
@@ -142,6 +143,7 @@ async def create_did_talk(wav_bytes: bytes, avatar_url: str) -> dict:
 
     raise HTTPException(status_code=504, detail="D-ID talk timed out.")
 
+
 # ── Request Models ────────────────────────────────────────────────────────────
 
 class ChatTurn(BaseModel):
@@ -150,18 +152,18 @@ class ChatTurn(BaseModel):
 
 
 class AvatarChatRequest(BaseModel):
-    audioBase64:   Optional[str]        = None   # base64 webm/wav from browser mic
-    audioMimeType: Optional[str]        = "audio/webm"
-    inputText:     Optional[str]        = ""     # fallback text input
-    voice:         Optional[str]        = "Kore"
-    chatHistory:   Optional[List[ChatTurn]] = []
-    avatarUrl:     Optional[str]        = None   # override default avatar image
+    audioBase64: Optional[str] = None  # base64 webm/wav from browser mic
+    audioMimeType: Optional[str] = "audio/webm"
+    inputText: Optional[str] = ""  # fallback text input
+    voice: Optional[str] = "Kore"
+    chatHistory: Optional[List[ChatTurn]] = []
+    avatarUrl: Optional[str] = None  # override default avatar image
 
 
 class TtsOnlyRequest(BaseModel):
-    text:  str
+    text: str
     voice: Optional[str] = "Kore"
-    mood:  Optional[str] = "naturally"
+    mood: Optional[str] = "naturally"
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -243,19 +245,18 @@ async def avatar_chat(payload: AvatarChatRequest):
         pcm_raw = base64.b64decode(pcm_raw)
 
     # Convert PCM → WAV, then re-encode as base64 for D-ID
-    wav_bytes   = pcm_to_wav(pcm_raw, sample_rate=24000)
-    wav_b64     = base64.b64encode(wav_bytes).decode()
+    wav_bytes = pcm_to_wav(pcm_raw, sample_rate=24000)
+    wav_b64 = base64.b64encode(wav_bytes).decode()
     logger.info("TTS audio ready, sending to D-ID...")
 
-    # ── Step 4: D-ID Talk API ────────────────────────────────────────────────
     talk_data = await create_did_talk(wav_bytes, avatar_url)
     video_url = talk_data.get("result_url")
 
     return {
         "userMessage": spoken_query,
-        "aiMessage":   ai_text,
-        "videoUrl":    video_url,
-        "talkId":      talk_data.get("id"),
+        "aiMessage": ai_text,
+        "videoUrl": video_url,
+        "talkId": talk_data.get("id"),
     }
 
 
@@ -305,7 +306,7 @@ async def health():
     return {
         "status": "healthy",
         "gemini_key": bool(GEMINI_API_KEY),
-        "did_key":    bool(DID_API_KEY),
+        "did_key": bool(DID_API_KEY),
         "avatar_url": DEFAULT_AVATAR_URL,
     }
 
@@ -315,7 +316,7 @@ if os.path.exists("index.html"):
     async def index():
         return FileResponse("index.html")
 
-
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("server:app", host="0.0.0.0", port=3000, reload=True)
